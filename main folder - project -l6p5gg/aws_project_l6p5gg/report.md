@@ -37,7 +37,7 @@ The pipeline ingests data from two sources and processes them into an analytics-
 
 ![Alt text](image2.png)
 
-2. **NBA API (Players' performance stats) → AWS Lambda + Weekly EventBridge Trigger → Amazon S3 (raw data)**
+2. **NBA API (Players' performance stats) from BallDontLie website → AWS Lambda + Weekly EventBridge Trigger → Amazon S3 (raw data)**
 
 ![Alt text](image3.png)
 
