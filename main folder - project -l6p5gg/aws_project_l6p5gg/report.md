@@ -33,7 +33,7 @@ pre-draft physical measurements.
 The pipeline ingests data from two sources and processes them into an analytics-ready dataset.
 
 ### Data Flow
-1. **Draft Combine CSV (Players' physicality stats) → Amazon S3**
+1. **Draft Combine CSV (Players' physicality stats) from Kaggle → Amazon S3**
 
 ![Alt text](image2.png)
 
