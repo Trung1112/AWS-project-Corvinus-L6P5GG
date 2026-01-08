@@ -60,10 +60,6 @@ HEADERS = {
 }
 
 def fetch_player_game_stats(start_date, end_date, per_page=25):
-    """
-    Fetch NBA player game stats from BallDontLie API
-    for a given date range (single page only).
-    """
     params = {
         "start_date": start_date,
         "end_date": end_date,
