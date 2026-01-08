@@ -46,7 +46,7 @@ The pipeline ingests data from two sources and processes them into an analytics-
 The following AWS Lambda function retrieves NBA player game statistics from an external API,
 handles rate limiting and pagination, and stores the data in Amazon S3 using a JSON Lines format.
 
-I also asked the help of Chatgpt to generate the code, since BallDontLie API suggests its JSON structure and access is compatitle with AI models 
+I also asked the help of Chatgpt to generate the code, since BallDontLie API suggests its JSON structure and access is compatible with AI models 
 
 ```python
 import json
