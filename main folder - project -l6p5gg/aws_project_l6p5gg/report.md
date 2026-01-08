@@ -337,13 +337,11 @@ The most important part of this project is the **integration of Draft Combine CS
 game statistics**.
 
 ### Challenges
-- Different file formats (CSV vs JSON)
 - Different identifiers (names vs numeric IDs)
 - Inconsistent naming conventions
 - Schema conflicts caused by partition columns
 
 ### Solution
-- Player names from the API were transformed to match the CSV format (`"Last, First"`)
 - A normalized lowercase join key was created to handle formatting differences
 - Amazon Athena CTAS was used to:
   - Join the CSV and API datasets
