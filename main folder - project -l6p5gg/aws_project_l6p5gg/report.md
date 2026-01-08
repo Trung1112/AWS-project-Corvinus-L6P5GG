@@ -169,7 +169,7 @@ SELECT
   s.season
 FROM nba_database.player_game_stats_jsonl_v3 s
 JOIN nba_database.csv_data c
-  ON lower(trim(c.player)) = s.player_name_csv_norm;
+  ON lower(trim(c.player)) = s.player_name;
 ```
 ### Automation
 - AWS Lambda retrieves NBA game data from the API
