@@ -51,73 +51,62 @@ handles rate limiting and pagination, and stores the data in Amazon S3 using a J
 import os
 import json
 import requests
+import boto3
 
 # --- API setup ---
 API_KEY = os.environ["BALLDONTLIE_API_KEY"]
 BASE_URL = "https://api.balldontlie.io/v1/stats"
-HEADERS = {
-    "Authorization": f"Bearer {API_KEY}"
-}
+HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
-def fetch_player_game_stats(start_date, end_date, per_page=25):
+# --- S3 setup ---
+s3 = boto3.client("s3")
+BUCKET = "api-nba-data"
+KEY = "demo/nba_player_game_stats.jsonl"
+
+
+def fetch_stats(start_date, end_date, per_page=25):
     params = {
         "start_date": start_date,
         "end_date": end_date,
         "per_page": per_page
     }
-
-    response = requests.get(
-        BASE_URL,
-        headers=HEADERS,
-        params=params,
-        timeout=30
-    )
-    response.raise_for_status()
-    return response.json()
+    r = requests.get(BASE_URL, headers=HEADERS, params=params, timeout=30)
+    r.raise_for_status()
+    return r.json()["data"]
 
 
-def clean_stats(raw_data):
-    """
-    Keep only the fields needed for analysis.
-    """
+def clean_stats(data):
     cleaned = []
-
-    for s in raw_data:
+    for s in data:
         player = s.get("player") or {}
         game = s.get("game") or {}
 
         cleaned.append({
             "game_date": game.get("date"),
             "game_id": game.get("id"),
-
             "player_id": player.get("id"),
             "player_name": f"{player.get('last_name')}, {player.get('first_name')}",
-
-            "team_id": (s.get("team") or {}).get("id"),
-
             "pts": s.get("pts"),
             "reb": s.get("reb"),
             "ast": s.get("ast"),
             "min": s.get("min"),
         })
-
     return cleaned
 
 
 if __name__ == "__main__":
-    # Example date range
-    START_DATE = "2025-12-01"
-    END_DATE = "2025-12-07"
+    stats = fetch_stats("2025-12-01", "2025-12-07")
+    cleaned = clean_stats(stats)
 
-    # Fetch raw API data
-    payload = fetch_player_game_stats(START_DATE, END_DATE)
+    body = "\n".join(json.dumps(row) for row in cleaned)
 
-    # Clean and simplify
-    stats = clean_stats(payload.get("data", []))
+    s3.put_object(
+        Bucket=BUCKET,
+        Key=KEY,
+        Body=body
+    )
 
-    # Output as JSON Lines (easy to load later)
-    for row in stats:
-        print(json.dumps(row))
+    print(f"Wrote {len(cleaned)} rows to s3://{BUCKET}/{KEY}")
 ```
 
 3. **AWS Crawler and Glue Database to store CSV and API data and their combination**
