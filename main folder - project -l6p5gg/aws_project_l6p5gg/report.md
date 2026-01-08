@@ -46,180 +46,82 @@ The pipeline ingests data from two sources and processes them into an analytics-
 The following AWS Lambda function retrieves NBA player game statistics from an external API,
 handles rate limiting and pagination, and stores the data in Amazon S3 using a JSON Lines format.
 
-I also asked the help of Chatgpt to generate the code, since BallDontLie API suggests its JSON structure and access is compatible with AI models 
 
 ```python
-import json
-import boto3
-import requests
 import os
-import time
-from requests.exceptions import ReadTimeout, ConnectionError
+import json
+import requests
 
-s3 = boto3.client("s3")
-
-BUCKET = "api-nba-data"
-PREFIX = "raw/nba/player_game_stats_jsonl_v3/"
-
+# --- API setup ---
 API_KEY = os.environ["BALLDONTLIE_API_KEY"]
 BASE_URL = "https://api.balldontlie.io/v1/stats"
-HEADERS = {"Authorization": f"Bearer {API_KEY}"}
+HEADERS = {
+    "Authorization": f"Bearer {API_KEY}"
+}
 
-MAX_PAGES_PER_RUN = 10
-STATE_PREFIX = "state/nba/player_game_stats_jsonl/"
-
-def s3_put_json(key, obj):
-    s3.put_object(Bucket=BUCKET, Key=key, Body=json.dumps(obj))
-
-def s3_get_json(key):
-    try:
-        body = s3.get_object(Bucket=BUCKET, Key=key)["Body"].read().decode("utf-8")
-        return json.loads(body)
-    except Exception:
-        return None
-
-def get_with_backoff(params, max_retries=8):
-    wait = 1
-    for _ in range(max_retries):
-        try:
-            r = requests.get(BASE_URL, headers=HEADERS, params=params, timeout=30)
-
-            if r.status_code == 429:
-                retry_after = r.headers.get("Retry-After")
-                sleep_s = int(retry_after) if retry_after and retry_after.isdigit() else wait
-                print(f"429 hit. Sleeping {sleep_s}s...")
-                time.sleep(sleep_s)
-                wait = min(wait * 2, 60)
-                continue
-
-            if 500 <= r.status_code < 600:
-                print(f"{r.status_code} server error. Sleeping {wait}s...")
-                time.sleep(wait)
-                wait = min(wait * 2, 60)
-                continue
-
-            r.raise_for_status()
-            return r.json()
-
-        except (ReadTimeout, ConnectionError) as e:
-            print(f"Network error: {e}. Sleeping {wait}s...")
-            time.sleep(wait)
-            wait = min(wait * 2, 60)
-
-    raise Exception("Too many retries")
-
-def lambda_handler(event, context):
+def fetch_player_game_stats(start_date, end_date, per_page=25):
     """
-    Example event:
-    {
-      "season": 2026,
-      "start_date": "2025-12-01",
-      "end_date": "2025-12-07",
-      "reset": true
-    }
+    Fetch NBA player game stats from BallDontLie API
+    for a given date range (single page only).
     """
-    season = event.get("season", 2026)
-    start_date = event.get("start_date", "2025-12-01")
-    end_date = event.get("end_date", "2025-12-07")
-    reset = event.get("reset", False)
-
-    state_key = f"{STATE_PREFIX}season={season}/range={start_date}_to_{end_date}.json"
-
-    if reset:
-        cursor = None
-        page = 0
-    else:
-        state = s3_get_json(state_key) or {}
-        if state.get("done"):
-            return {"status": "done_already", "checkpoint": state_key}
-        cursor = state.get("cursor")
-        page = int(state.get("page", 0))
-
-    pages_done = 0
-    rows_written = 0
-
-    while pages_done < MAX_PAGES_PER_RUN:
-        params = {
-            "start_date": start_date,
-            "end_date": end_date,
-            "per_page": 25
-        }
-        if cursor:
-            params["cursor"] = cursor
-
-        payload = get_with_backoff(params)
-        data = payload.get("data", [])
-
-        if not data:
-            s3_put_json(state_key, {"done": True, "cursor": None, "page": page})
-            return {
-                "status": "done",
-                "season": season,
-                "range": f"{start_date} → {end_date}",
-                "rows_written": rows_written,
-                "pages_written_this_run": pages_done
-            }
-
-        cleaned = []
-        for s in data:
-            player = s.get("player") or {}
-            first = player.get("first_name")
-            last = player.get("last_name")
-
-            player_name_csv = None
-            player_name_csv_norm = None
-            if first and last:
-                player_name_csv = f"{last}, {first}"
-                player_name_csv_norm = player_name_csv.strip().lower()
-
-            cleaned.append({
-                "game_date": (s.get("game") or {}).get("date"),
-                "game_id": (s.get("game") or {}).get("id"),
-
-                "player_id": player.get("id"),
-                "player_first_name": first,
-                "player_last_name": last,
-                "player_name_csv": player_name_csv,
-                "player_name_csv_norm": player_name_csv_norm,
-
-                "team_id": (s.get("team") or {}).get("id"),
-
-                "pts": s.get("pts"),
-                "reb": s.get("reb"),
-                "ast": s.get("ast"),
-                "min": s.get("min")
-            })
-
-        body = "\n".join(json.dumps(row) for row in cleaned)
-
-        s3.put_object(
-            Bucket=BUCKET,
-            Key=f"{PREFIX}season={season}/week={start_date}/page={page}.jsonl",
-            Body=body
-        )
-
-        rows_written += len(cleaned)
-        page += 1
-        pages_done += 1
-
-        cursor = (payload.get("meta") or {}).get("next_cursor")
-        s3_put_json(state_key, {"done": False, "cursor": cursor, "page": page})
-
-        if not cursor:
-            s3_put_json(state_key, {"done": True, "cursor": None, "page": page})
-            break
-
-        time.sleep(1)
-
-    return {
-        "status": "partial",
-        "season": season,
-        "range": f"{start_date} → {end_date}",
-        "rows_written": rows_written,
-        "pages_written_this_run": pages_done,
-        "next_page": page,
-        "checkpoint_s3_key": state_key
+    params = {
+        "start_date": start_date,
+        "end_date": end_date,
+        "per_page": per_page
     }
+
+    response = requests.get(
+        BASE_URL,
+        headers=HEADERS,
+        params=params,
+        timeout=30
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def clean_stats(raw_data):
+    """
+    Keep only the fields needed for analysis.
+    """
+    cleaned = []
+
+    for s in raw_data:
+        player = s.get("player") or {}
+        game = s.get("game") or {}
+
+        cleaned.append({
+            "game_date": game.get("date"),
+            "game_id": game.get("id"),
+
+            "player_id": player.get("id"),
+            "player_name": f"{player.get('last_name')}, {player.get('first_name')}",
+
+            "team_id": (s.get("team") or {}).get("id"),
+
+            "pts": s.get("pts"),
+            "reb": s.get("reb"),
+            "ast": s.get("ast"),
+            "min": s.get("min"),
+        })
+
+    return cleaned
+
+
+if __name__ == "__main__":
+    # Example date range
+    START_DATE = "2025-12-01"
+    END_DATE = "2025-12-07"
+
+    # Fetch raw API data
+    payload = fetch_player_game_stats(START_DATE, END_DATE)
+
+    # Clean and simplify
+    stats = clean_stats(payload.get("data", []))
+
+    # Output as JSON Lines (easy to load later)
+    for row in stats:
+        print(json.dumps(row))
 ```
 
 3. **AWS Crawler and Glue Database to store CSV and API data and their combination**
